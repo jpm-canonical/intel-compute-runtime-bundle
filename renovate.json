@@ -1,0 +1,42 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended"
+  ],
+  "dependencyDashboard": false,
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Track stable Intel compute-runtime releases",
+      "managerFilePatterns": [
+        "/^compute-runtime\\.version$/"
+      ],
+      "matchStrings": [
+        "^(?<currentValue>\\d{2}\\.\\d{2}\\.\\d+\\.\\d+)\\n?$"
+      ],
+      "datasourceTemplate": "github-releases",
+      "depNameTemplate": "intel/compute-runtime",
+      "versioningTemplate": "loose"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "Resolve and automerge stable compute-runtime bundle updates",
+      "matchDepNames": [
+        "intel/compute-runtime"
+      ],
+      "matchDatasources": [
+        "github-releases"
+      ],
+      "ignoreUnstable": true,
+      "automerge": true,
+      "automergeType": "pr",
+      "platformAutomerge": true,
+      "commitMessageTopic": "Intel compute-runtime bundle",
+      "labels": [
+        "dependencies",
+        "intel-compute-runtime"
+      ]
+    }
+  ]
+}
