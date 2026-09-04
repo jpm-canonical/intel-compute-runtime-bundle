@@ -47,7 +47,7 @@ jobs:
             --draft \
             --target "${{ github.sha }}" \
             --title "Intel compute-runtime $VERSION" \
-            --notes "Verified amd64 package bundle for Intel compute-runtime $VERSION." \
+            --notes "Package bundle for Intel compute-runtime $VERSION." \
             dist/intel-compute-runtime-amd64.tar.gz \
             dist/SHA256SUMS
 
