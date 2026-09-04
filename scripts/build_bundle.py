@@ -79,13 +79,30 @@ def linked_igc_tag(body: str) -> str:
 
 
 def checksum(release: dict[str, Any], asset: dict[str, Any]) -> str:
+    """
+    Return the SHA-256 checksum for the given asset in the release.
+    Looks at the API "digest" field or at the release description.
+
+    Args:
+        release: The GitHub release metadata.
+        asset: The asset metadata within the release.
+
+    Returns:
+        The SHA-256 checksum as a lowercase hexadecimal string.
+
+    Raises:
+        BundleError: If no trustworthy SHA-256 checksum is found.
+    """
     digest = asset.get("digest")
     if isinstance(digest, str) and re.fullmatch(r"sha256:[0-9a-fA-F]{64}", digest):
         return digest.split(":", 1)[1].lower()
+
+    # Look at the release description for a SHA-256 checksum of the given file
     name = re.escape(str(asset.get("name")))
     match = re.search(rf"(?m)^\s*([0-9a-fA-F]{{64}})\s+[*]?{name}\s*$", str(release.get("body") or ""))
     if not match:
         raise BundleError(f"no trustworthy SHA-256 found for {asset.get('name')}")
+    
     return match.group(1).lower()
 
 
