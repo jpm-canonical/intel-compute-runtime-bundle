@@ -33,10 +33,9 @@ jobs:
           echo "value=$version" >> "$GITHUB_OUTPUT"
 
       - name: Build and verify bundle
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          make package
+        uses: ./.github/actions/build-and-verify
+        with:
+          github-token: ${{ github.token }}
 
       - name: Create draft release and upload bundle
         env:
