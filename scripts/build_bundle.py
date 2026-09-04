@@ -49,6 +49,19 @@ def sha256_file(path: Path) -> str:
 
 
 def fetch_release(repo: str, tag: str, token: str | None = None) -> dict[str, Any]:
+    """Fetch the GitHub release metadata for the given repository and tag.
+
+    Args:
+        repo: The GitHub repository in the form "owner/repo".
+        tag: The release tag.
+        token: Optional GitHub API token for authentication.
+
+    Returns:
+        The release metadata as a dictionary.
+
+    Raises:
+        BundleError: If the release metadata could not be fetched or is invalid.
+    """
     request = Request(
         f"{API_ROOT}/repos/{repo}/releases/tags/{tag}",
         headers={
