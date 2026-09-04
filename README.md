@@ -33,9 +33,10 @@ make test
 make resolve
 make build
 (cd dist && sha256sum --check SHA256SUMS)
+make package
 ```
 
-Downloaded packages are cached under `.cache/packages/`. Build outputs are written to `dist/`.
+`make build` writes the unpacked bundle to `dist/`, where its package checksums can be verified directly. `make package` builds the release artifact at `dist/intel-compute-runtime-amd64.tar.gz` via a temporary staging directory.
 
 ## Consumer-side splitting
 
