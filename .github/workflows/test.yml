@@ -25,14 +25,6 @@ jobs:
         run: python3 -m unittest discover -v
 
       - name: Build and verify bundle
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          python3 scripts/build_bundle.py
-          (cd dist && sha256sum --check SHA256SUMS)
-          mkdir extracted
-          tar -xzf dist/intel-compute-runtime-amd64.tar.gz -C extracted
-          (cd extracted && sha256sum --check SHA256SUMS)
-          for package in extracted/packages/*.deb; do
-            dpkg-deb --info "$package" >/dev/null
-          done
+        uses: ./.github/actions/build-and-verify
+        with:
+          github-token: ${{ github.token }}

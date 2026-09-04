@@ -22,7 +22,6 @@ from urllib.request import Request, urlopen
 API_ROOT = "https://api.github.com"
 RUNTIME_REPO = "intel/compute-runtime"
 IGC_REPO = "intel/intel-graphics-compiler"
-ARCHIVE_NAME = "intel-compute-runtime-amd64.tar.gz"
 VERSION_RE = re.compile(r"^\d{2}\.\d{2}\.\d+\.\d+$")
 ROLE_PATTERNS = {
     "opencl_icd": re.compile(r"^intel-opencl-icd_[^/]+_amd64\.deb$"),
@@ -49,6 +48,19 @@ def sha256_file(path: Path) -> str:
 
 
 def fetch_release(repo: str, tag: str, token: str | None = None) -> dict[str, Any]:
+    """Fetch the GitHub release metadata for the given repository and tag.
+
+    Args:
+        repo: The GitHub repository in the form "owner/repo".
+        tag: The release tag.
+        token: Optional GitHub API token for authentication.
+
+    Returns:
+        The release metadata as a dictionary.
+
+    Raises:
+        BundleError: If the release metadata could not be fetched or is invalid.
+    """
     request = Request(
         f"{API_ROOT}/repos/{repo}/releases/tags/{tag}",
         headers={
@@ -78,14 +90,31 @@ def linked_igc_tag(body: str) -> str:
     return tags[0]
 
 
-def checksum(release: dict[str, Any], asset: dict[str, Any]) -> str:
+def find_checksum(release: dict[str, Any], asset: dict[str, Any]) -> str:
+    """
+    Return the SHA-256 checksum for the given asset in the release.
+    Looks at the API "digest" field or at the release description.
+
+    Args:
+        release: The GitHub release metadata.
+        asset: The asset metadata within the release.
+
+    Returns:
+        The SHA-256 checksum as a lowercase hexadecimal string.
+
+    Raises:
+        BundleError: If no trustworthy SHA-256 checksum is found.
+    """
     digest = asset.get("digest")
     if isinstance(digest, str) and re.fullmatch(r"sha256:[0-9a-fA-F]{64}", digest):
         return digest.split(":", 1)[1].lower()
+
+    # Look at the release description for a SHA-256 checksum of the given file
     name = re.escape(str(asset.get("name")))
     match = re.search(rf"(?m)^\s*([0-9a-fA-F]{{64}})\s+[*]?{name}\s*$", str(release.get("body") or ""))
     if not match:
         raise BundleError(f"no trustworthy SHA-256 found for {asset.get('name')}")
+    
     return match.group(1).lower()
 
 
@@ -119,7 +148,7 @@ def package_for_role(
         "name": asset["name"],
         "url": asset["browser_download_url"],
         "size": asset["size"],
-        "sha256": checksum(release, asset),
+        "sha256": find_checksum(release, asset),
     }
 
 
@@ -161,9 +190,25 @@ def resolve(
 
 
 def download(package: dict[str, Any], cache: Path, token: str | None) -> Path:
+    """
+    Download the specified package to the local cache, verifying its size and SHA-256 checksum.
+
+    Args:
+        package: The package metadata dictionary.
+        cache: The local cache directory as a Path object.
+        token: Optional GitHub API token for authentication.
+
+    Returns:
+        The path to the downloaded package file.
+
+    Raises:
+        BundleError: If the download fails or the file's size or checksum does not match.
+    """
+
     target = cache / package["name"]
     if target.exists() and target.stat().st_size == package["size"] and sha256_file(target) == package["sha256"]:
         return target
+    
     target.unlink(missing_ok=True)
     temporary = target.with_suffix(target.suffix + ".part")
     request = Request(
@@ -180,45 +225,36 @@ def download(package: dict[str, Any], cache: Path, token: str | None) -> Path:
     except (HTTPError, URLError, TimeoutError, OSError) as error:
         temporary.unlink(missing_ok=True)
         raise BundleError(f"failed to download {package['url']}: {error}") from error
+
+    # Check downloaded artifact for size and SHA-256 checksum
     if target.stat().st_size != package["size"] or sha256_file(target) != package["sha256"]:
         target.unlink(missing_ok=True)
         raise BundleError(f"checksum or size mismatch for {package['name']}")
     return target
 
+def dump_checksums(manifest: dict[str, Any], output: Path) -> None:
+    """
+    Dump the SHA-256 checksums of the packages in the manifest to the specified output file.
 
-def add_bytes(archive: tarfile.TarFile, name: str, content: bytes) -> None:
-    info = tarfile.TarInfo(name)
-    info.size = len(content)
-    info.mode = 0o644
-    info.uid = info.gid = 0
-    info.uname = info.gname = "root"
-    info.mtime = 0
-    archive.addfile(info, io.BytesIO(content))
-
-
-def build_archive(manifest: dict[str, Any], paths: dict[str, Path], output: Path) -> None:
-    manifest_bytes = (json.dumps(manifest, indent=2, sort_keys=True) + "\n").encode()
-    sums = "".join(
+    Args:
+        manifest: The manifest dictionary containing package metadata.
+        output: The path to the output file where checksums will be written.
+    """
+    checksums = "".join(
         f"{package['sha256']}  packages/{package['name']}\n"
         for package in manifest["packages"]
-    ).encode()
-    with (
-        output.open("wb") as raw,
-        gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0) as compressed,
-        tarfile.open(fileobj=compressed, mode="w", format=tarfile.PAX_FORMAT) as archive,
-    ):
-        add_bytes(archive, "SHA256SUMS", sums)
-        add_bytes(archive, "manifest.json", manifest_bytes)
-        for package in manifest["packages"]:
-            path = paths[package["name"]]
-            info = archive.gettarinfo(str(path), arcname=f"packages/{package['name']}")
-            info.mode = 0o644
-            info.uid = info.gid = 0
-            info.uname = info.gname = "root"
-            info.mtime = 0
-            with path.open("rb") as source:
-                archive.addfile(info, source)
+    )
+    output.write_text(checksums)
 
+def dump_manifest(manifest: dict[str, Any], output: Path) -> None:
+    """
+    Dump the manifest to the specified output file in JSON format.
+
+    Args:
+        manifest: The manifest dictionary containing package metadata.
+        output: The path to the output file where the manifest will be written.
+    """
+    output.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
 
 def read_version(path: Path) -> str:
     lines = [line.strip() for line in path.read_text().splitlines() if line.strip()]
@@ -230,26 +266,32 @@ def read_version(path: Path) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--version-file", type=Path, default=Path("compute-runtime.version"))
-    parser.add_argument("--cache-dir", type=Path, default=Path(".cache/packages"))
     parser.add_argument("--output-dir", type=Path, default=Path("dist"))
     parser.add_argument("--resolve-only", action="store_true")
     args = parser.parse_args()
+
     try:
         token = os.environ.get("GITHUB_TOKEN")
         manifest = resolve(read_version(args.version_file), token=token)
         if args.resolve_only:
             print(json.dumps(manifest, indent=2, sort_keys=True))
             return 0
-        args.cache_dir.mkdir(parents=True, exist_ok=True)
+
         args.output_dir.mkdir(parents=True, exist_ok=True)
-        paths = {
-            package["name"]: download(package, args.cache_dir, token)
-            for package in manifest["packages"]
-        }
-        archive = args.output_dir / ARCHIVE_NAME
-        build_archive(manifest, paths, archive)
-        (args.output_dir / "SHA256SUMS").write_text(f"{sha256_file(archive)}  {archive.name}\n")
-        print(archive)
+        packages_dir = args.output_dir / "packages"
+        packages_dir.mkdir(parents=True, exist_ok=True)
+
+        for package in manifest["packages"]:
+            print(f"Downloading {package['name']} from {package['url']}")
+            download(package, packages_dir, token)
+
+        print("Dumping checksums...")
+        dump_checksums(manifest, args.output_dir / "SHA256SUMS")
+
+        print("Dumping manifest...")
+        dump_manifest(manifest, args.output_dir / "manifest.json")
+
+        print("Done.")
     except (BundleError, OSError, json.JSONDecodeError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 1

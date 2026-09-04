@@ -1,0 +1,46 @@
+name: Build and verify bundle
+description: Build the compute runtime bundle and verify its contents
+
+inputs:
+  github-token:
+    description: GitHub token used to download package assets
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Build and verify bundle
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+      run: |
+        echo "Building package"
+        make package
+
+        echo "Verifying package"
+        extracted_dir="$(mktemp -d)"
+        trap 'rm -rf "$extracted_dir"' EXIT
+        tar -xzf dist/intel-compute-runtime-amd64.tar.gz -C "$extracted_dir"
+
+        echo "Verifying SHA256 checksums"
+        (cd "$extracted_dir" && sha256sum --check SHA256SUMS)
+
+        mapfile -d '' deb_packages < <(find "$extracted_dir/packages" -type f -name '*.deb' -print0)
+        mapfile -d '' part_files < <(find "$extracted_dir/packages" -type f -name '*.part' -print0)
+
+        echo "Verifying that there's at least one .deb file in packages/"
+        if (( ${#deb_packages[@]} == 0 )); then
+          echo "No .deb files found in packages/" >&2
+          exit 1
+        fi
+
+        echo "Verifying that there are no .part files in packages/"
+        if (( ${#part_files[@]} > 0 )); then
+          echo "Found .part files in packages/" >&2
+          exit 1
+        fi
+
+        echo "Verifying the integrity of .deb packages"
+        for package in "${deb_packages[@]}"; do
+          dpkg-deb --info "$package" >/dev/null
+        done

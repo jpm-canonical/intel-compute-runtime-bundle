@@ -33,11 +33,9 @@ jobs:
           echo "value=$version" >> "$GITHUB_OUTPUT"
 
       - name: Build and verify bundle
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          python3 scripts/build_bundle.py
-          (cd dist && sha256sum --check SHA256SUMS)
+        uses: ./.github/actions/build-and-verify
+        with:
+          github-token: ${{ github.token }}
 
       - name: Create draft release and upload bundle
         env:
@@ -47,9 +45,8 @@ jobs:
             --draft \
             --target "${{ github.sha }}" \
             --title "Intel compute-runtime $VERSION" \
-            --notes "Verified amd64 package bundle for Intel compute-runtime $VERSION." \
-            dist/intel-compute-runtime-amd64.tar.gz \
-            dist/SHA256SUMS
+            --notes "Package bundle for Intel compute-runtime $VERSION." \
+            dist/intel-compute-runtime-amd64.tar.gz
 
       - name: Publish completed release
         run: gh release edit "${{ steps.version.outputs.value }}" --draft=false --latest

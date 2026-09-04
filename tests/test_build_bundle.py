@@ -175,33 +175,5 @@ class ResolveTests(unittest.TestCase):
         self.assertEqual(len(manifest["packages"]), 6)
         self.assertTrue(all(len(package["sha256"]) == 64 for package in manifest["packages"]))
 
-
-class ArchiveTests(unittest.TestCase):
-    def test_builds_one_reproducible_archive(self) -> None:
-        contents, values = releases()
-        manifest = build_bundle.resolve(VERSION, fetcher(values))
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            paths = {}
-            for package in manifest["packages"]:
-                path = root / package["name"]
-                path.write_bytes(contents[package["role"]])
-                paths[package["name"]] = path
-            output = root / build_bundle.ARCHIVE_NAME
-
-            build_bundle.build_archive(manifest, paths, output)
-            first = output.read_bytes()
-            build_bundle.build_archive(manifest, paths, output)
-
-            self.assertEqual(first, output.read_bytes())
-            with tarfile.open(fileobj=io.BytesIO(first), mode="r:gz") as archive:
-                names = archive.getnames()
-                self.assertEqual(names[:2], ["SHA256SUMS", "manifest.json"])
-                self.assertEqual(len(names), 8)
-                self.assertTrue(all(member.mtime == 0 for member in archive.getmembers()))
-                bundled_manifest = json.load(archive.extractfile("manifest.json"))
-                self.assertEqual(len(bundled_manifest["packages"]), 6)
-
-
 if __name__ == "__main__":
     unittest.main()
